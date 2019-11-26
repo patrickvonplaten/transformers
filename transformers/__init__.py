@@ -37,7 +37,7 @@ from .tokenization_auto import AutoTokenizer
 from .tokenization_bert import BertTokenizer, BasicTokenizer, WordpieceTokenizer
 from .tokenization_openai import OpenAIGPTTokenizer
 from .tokenization_transfo_xl import (TransfoXLTokenizer, TransfoXLCorpus)
-from .tokenization_gpt2 import GPT2Tokenizer
+from .tokenization_gpt2 import GPT2Tokenizer, GPT2TokenizerOld
 from .tokenization_ctrl import CTRLTokenizer
 from .tokenization_xlnet import XLNetTokenizer, SPIECE_UNDERLINE
 from .tokenization_xlm import XLMTokenizer
