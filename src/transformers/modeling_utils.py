@@ -20,6 +20,9 @@ import logging
 import os
 import typing
 
+import ipdb
+from statistics import mean
+
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
@@ -801,6 +804,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
 
         past = None
 
+        ratios = []
         while cur_len < max_length:
             model_inputs = self.prepare_inputs_for_generation(input_ids, past=past)
             outputs = self(**model_inputs)
@@ -825,9 +829,29 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 if temperature != 1.0:
                     next_token_logits = next_token_logits / temperature
                 # Top-p/top-k filtering
-                next_token_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
+#                next_token_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
                 # Sample
-                next_token = torch.multinomial(F.softmax(next_token_logits, dim=-1), num_samples=1).squeeze(1)
+                softmax_output_applied_penalty = F.softmax(next_token_logits, dim=-1)
+
+                # Previous Tokens
+                if repetition_penalty != 1.0:
+                    for i in range(batch_size):
+                        for previous_token in set(input_ids[i].tolist()):
+                            # if score < 0 then repetition penalty has to multiplied to reduce the previous token probability
+                            if next_token_logits[i, previous_token] < 0:
+                                next_token_logits[i, previous_token] /= repetition_penalty
+                            else:
+                                next_token_logits[i, previous_token] *= repetition_penalty
+
+                    # Sample
+                softmax_output_without_penalty = F.softmax(next_token_logits, dim=-1)
+
+                for previous_token in set(input_ids[0].tolist()):
+                    if softmax_output_without_penalty[0][previous_token] > 0.0:
+                        ratio = softmax_output_without_penalty[0, previous_token] / softmax_output_applied_penalty[0, previous_token]
+                        ratios.append(float(ratio))
+
+                next_token = torch.multinomial(softmax_output_applied_penalty, num_samples=1).squeeze(1)
             else:
                 # Greedy decoding
                 next_token = torch.argmax(next_token_logits, dim=-1)
@@ -847,7 +871,14 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         if cur_len == max_length:
             input_ids[:, -1].masked_fill_(unfinished_sents.to(dtype=torch.bool), eos_token_ids[0])
 
-        return input_ids
+        def millify(n):
+            import math
+            n = float(n)
+            millidx = max(0, min(4, int(math.floor(0 if n == 0 else math.log10(abs(n)) / 3))))
+            return '{:.0f} x 10^{}'.format(n / 10**(3 * millidx), 3 * millidx)
+
+        mean_ratio = mean(ratios)
+        return mean_ratio
 
     def _generate_beam_search(
         self,
