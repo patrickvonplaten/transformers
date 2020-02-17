@@ -1,0 +1,26 @@
+Generate repetition penalty comparison for distilgpt2
+Penalty factor: 1.1 - Without penalty / penalty ratio avg: 23e3
+Penalty factor: 1.2 - Without penalty / penalty ratio avg: 2e9
+Penalty factor: 1.3 - Without penalty / penalty ratio avg: 223e9
+Penalty factor: 1.4 - Without penalty / penalty ratio avg: 3e24
+Generate repetition penalty comparison for gpt2
+Penalty factor: 1.1 - Without penalty / penalty ratio avg: 1e9
+Penalty factor: 1.2 - Without penalty / penalty ratio avg: 742e18
+Generate repetition penalty comparison for xlm-clm-enfr-1024
+Penalty factor: 1.1 - Without penalty / penalty ratio avg: 2e0
+Penalty factor: 1.2 - Without penalty / penalty ratio avg: 3e0
+Penalty factor: 1.3 - Without penalty / penalty ratio avg: 5e0
+Penalty factor: 1.4 - Without penalty / penalty ratio avg: 9e0
+Penalty factor: 1.5 - Without penalty / penalty ratio avg: 13e0
+Generate repetition penalty comparison for openai-gpt
+Penalty factor: 1.1 - Without penalty / penalty ratio avg: 1e0
+Penalty factor: 1.2 - Without penalty / penalty ratio avg: 2e0
+Penalty factor: 1.3 - Without penalty / penalty ratio avg: 4e0
+Penalty factor: 1.4 - Without penalty / penalty ratio avg: 15e0
+Penalty factor: 1.5 - Without penalty / penalty ratio avg: 19e0
+Generate repetition penalty comparison for xlnet-base-cased
+Penalty factor: 1.1 - Without penalty / penalty ratio avg: 5e0
+Penalty factor: 1.2 - Without penalty / penalty ratio avg: 34e0
+Penalty factor: 1.3 - Without penalty / penalty ratio avg: 2e3
+Penalty factor: 1.4 - Without penalty / penalty ratio avg: 47e3
+Penalty factor: 1.5 - Without penalty / penalty ratio avg: 8e6

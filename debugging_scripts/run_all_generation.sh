@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-model_name=${1}
+
+declare -a model_names=("distilgpt2" "gpt2" "xlm-clm-enfr-1024" "openai-gpt" "xlnet-base-cased")
 declare -a values=(1.1 1.2 1.3 1.4 1.5)
 
-for i in "${values[@]}"
+for model_name in "${model_names[@]}"
 do
-	python run_generation.py --model_name="${model_name}" --rep_pen="${i}"
+	echo "Generate repetition penalty comparison for ${model_name}"
+	for value in "${values[@]}"
+	do
+		python run_generation.py --model_name="${model_name}" --rep_pen="${value}"
+	done
 done
