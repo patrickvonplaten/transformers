@@ -1,3 +1,9 @@
+Generate repetition penalty comparison for ctrl
+Penalty factor: 1.1 - Without penalty / penalty ratio avg: 4e0
+Penalty factor: 1.2 - Without penalty / penalty ratio avg: 31e0
+Penalty factor: 1.3 - Without penalty / penalty ratio avg: 149e0
+Penalty factor: 1.4 - Without penalty / penalty ratio avg: 25e3
+Penalty factor: 1.5 - Without penalty / penalty ratio avg: 286e3
 Generate repetition penalty comparison for distilgpt2
 Penalty factor: 1.1 - Without penalty / penalty ratio avg: 23e3
 Penalty factor: 1.2 - Without penalty / penalty ratio avg: 2e9
