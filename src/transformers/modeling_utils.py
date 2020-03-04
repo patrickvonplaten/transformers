@@ -19,6 +19,7 @@
 import logging
 import os
 import typing
+import ipdb
 
 import torch
 from torch import nn
@@ -778,18 +779,37 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
             pad_token_id = eos_token_ids[0]
 
         # current position and vocab size
-        cur_len = input_ids.shape[1]
+
         vocab_size = self.config.vocab_size
 
-        if num_return_sequences != 1 and do_sample:
-            # Expand input to num return sequences
-            input_ids = input_ids.unsqueeze(1).expand(batch_size, num_return_sequences, cur_len)
-            input_ids = input_ids.contiguous().view(
-                batch_size * num_return_sequences, cur_len
-            )  # shape: (batch_size * num_return_sequences, cur_len)
+        if do_sample:
             effective_batch_size = batch_size * num_return_sequences
+            effective_batch_mult = num_return_sequences
         else:
             effective_batch_size = batch_size
+            effective_batch_mult = 1
+
+        if (effective_batch_mult > 1 or num_beams > 1):
+            # Expand input to num return sequences and num_beams
+            input_ids = input_ids.unsqueeze(1).expand(batch_size, effective_batch_mult * num_beams, input_ids.shape[-1])
+            input_ids = input_ids.contiguous().view(
+                batch_size * effective_batch_mult * num_beams, input_ids.shape[-1]
+            )  # shape: (batch_size * num_return_sequences * num_beams, cur_len)
+
+        # TODO (PVP): check eos_token_id
+        is_encoder_decoder = True
+        if is_encoder_decoder:
+            eos_token_id = eos_token_ids[0]
+            assert bos_token_id is not None, "Encoder Decoder Models need to have a bos_token_id"
+            assert eos_token_id is not None, "Encoder Decoder Models need to have a bos_token_id"
+            # encoder decoder need to start with empty input_ids and copy the input_ids to encoder_inputs
+            encoder_inputs = input_ids
+            input_ids = torch.full((effective_batch_size * num_beams, 1), eos_token_id, dtype=torch.long, device=next(self.parameters()).device)
+            cur_len = 1
+            self.model.decoder.generation_mode = True
+        else:
+            encoder_inputs = None
+            cur_len = input_ids.shape[-1]
 
         if num_beams > 1:
             output = self._generate_beam_search(
@@ -808,6 +828,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 length_penalty,
                 num_beams,
                 vocab_size,
+                encoder_inputs
             )
         else:
             output = self._generate_no_beam_search(
@@ -822,6 +843,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 pad_token_id,
                 eos_token_ids,
                 effective_batch_size,
+                encoder_inputs
             )
 
         return output
@@ -839,6 +861,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         pad_token_id,
         eos_token_ids,
         batch_size,
+        encoder_inputs
     ):
         """ Generate sequences for each example without beam search (num_beams == 1).
             All returned sequence are generated independantly.
@@ -849,7 +872,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
 
         past = None
         while cur_len < max_length:
-            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past)
+            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past, encoder_inputs=encoder_inputs)
 
             outputs = self(**model_inputs)
             next_token_logits = outputs[0][:, -1, :]
@@ -928,13 +951,10 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         length_penalty,
         num_beams,
         vocab_size,
+        encoder_inputs
     ):
         """ Generate sequences for each example with beam search.
         """
-
-        # Expand input to num beams
-        input_ids = input_ids.unsqueeze(1).expand(batch_size, num_beams, cur_len)
-        input_ids = input_ids.contiguous().view(batch_size * num_beams, cur_len)  # (batch_size * num_beams, cur_len)
 
         # generated hypotheses
         generated_hyps = [
@@ -951,12 +971,11 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
 
         # cache compute states
         past = None
-
         # done sentences
         done = [False for _ in range(batch_size)]
 
         while cur_len < max_length:
-            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past)
+            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past, encoder_inputs=encoder_inputs)
             outputs = self(**model_inputs)  # (batch_size * num_beams, cur_len, vocab_size)
             next_token_logits = outputs[0][:, -1, :]  # (batch_size * num_beams, vocab_size)
 
