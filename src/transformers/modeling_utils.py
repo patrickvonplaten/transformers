@@ -1003,9 +1003,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 # Add the log prob of the new beams to the log prob of the beginning of the sequence (sum of logs == log of the product)
                 next_scores = scores + beam_scores[:, None].expand_as(scores)  # (batch_size * num_beams, vocab_size)
                 # re-organize to group the beam together (we are keeping top hypothesis accross beams)
-                next_scores = next_scores.view(
-                    batch_size, num_beams * vocab_size
-                )  # (batch_size, num_beams * vocab_size)
+                next_scores = next_scores.view(batch_size, num_beams * vocab_size)  # (batch_size, num_beams * vocab_size)
                 next_scores, next_tokens = torch.topk(next_scores, 2 * num_beams, dim=1, largest=True, sorted=True)
 
             assert next_scores.size() == next_tokens.size() == (batch_size, 2 * num_beams)
