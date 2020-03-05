@@ -260,7 +260,7 @@ class BartHeadTests(unittest.TestCase):
         expected_shape = (*summary.shape, config.vocab_size)
         self.assertEqual(logits.shape, expected_shape)
 
-    def test_generate_beam_search(self):
+    def _A_test_generate_beam_search(self):
         input_ids = torch.Tensor([[71, 82, 2], [68, 34, 2]]).long()
         config = BartConfig(
             vocab_size=self.vocab_size,
@@ -387,13 +387,16 @@ class BartModelIntegrationTest(unittest.TestCase):
     def test_cnn_summarization_same_as_fairseq(self):
         hf = BartForMaskedLM.from_pretrained("bart-large-cnn", output_past=True,).to(torch_device)
         tok = BartTokenizer.from_pretrained("bart-large")
-        ipdb.set_trace()
         text = " (CNN)The Palestinian Authority officially became the 123rd member of the International Criminal Court on Wednesday, a step that gives the court jurisdiction over alleged crimes in Palestinian"
         tokens = tok.encode(text, return_tensors="pt").to(torch_device)
         extra_len = 20
-        gen_tokens = hf.generate_1(tokens, num_beams=4, max_length=extra_len,)  # repetition_penalty=10.,
-        gen_tokens = hf.generate(tokens, num_beams=4, max_length=extra_len,)  # repetition_penalty=10.,
+        gen_tokens_1 = hf.generate_1(tokens, num_beams=4, max_length=extra_len,)  # repetition_penalty=10.,
+        gen_tokens = hf.generate(tokens, num_beams=4, max_length=extra_len, do_sample=False)  # repetition_penalty=10.,
+        print("1: {}".format(gen_tokens_1))
+        print("2: {}".format(gen_tokens))
+        ipdb.set_trace()
         expected_result = "<s>The Palestinian Authority officially became the 123rd member of the International Criminal Court on Wednesday."
+        generated_1 = [tok.decode(g,) for g in gen_tokens_1]
         generated = [tok.decode(g,) for g in gen_tokens]
         self.assertEqual(expected_result, generated[0])
 

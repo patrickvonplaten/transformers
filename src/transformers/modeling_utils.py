@@ -908,7 +908,8 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
             encoder_inputs = input_ids
             input_ids = torch.full(
                 (effective_batch_size * num_beams, 1),
-                eos_token_id,
+#                eos_token_id,
+                bos_token_id,
                 dtype=torch.long,
                 device=next(self.parameters()).device,
             )
@@ -1107,7 +1108,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         # done sentences
         done = [False for _ in range(batch_size)]
 
-        while cur_len < max_length:
+        while cur_len < max_length + 1:
             model_inputs = self.prepare_inputs_for_generation(
                 input_ids, past=past, encoder_inputs=encoder_inputs
             )
@@ -1171,15 +1172,15 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 )  # (batch_size * num_beams, vocab_size)
                 if is_encoder_decoder:  # TODO(PVP) to be refactored later
                     import math
-                    scores[scores != scores] = -math.inf  # block nans
-                    scores[:, pad_token_id] = -math.inf
+#                    scores[scores != scores] = -math.inf  # block nans
+#                    scores[:, pad_token_id] = -math.inf
                     # TODO(SS): fairseq also takes out <unk> every step, and has unk at slot 3
-
-                    if cur_len == 0:  # Force BOS to be chosen
-                        scores[:, self.config.bos_token_id + 1 :] = -math.inf  # TODO(PVP) should not use bos_token_id here
+#                    if cur_len == 0:  # Force BOS to be chosen
+#                        scores[:, self.config.bos_token_id + 1 :] = -math.inf  # TODO(PVP) should not use bos_token_id here
 #                    elif cur_len < min_len:  # Prevent EOS from being chosen TODO: for the moment don't think about min_len
 #                        scores[:, eos_token_ids[0]] = -math.inf
-                    elif cur_len == max_length:  # FORCE EOS to be chosen
+#                    elif cur_len == max_length:  # FORCE EOS to be chosen
+                    if cur_len == max_length:  # FORCE EOS to be chosen
                         scores[:, :eos_token_ids[0]] = -math.inf
                         scores[:, eos_token_ids[0] + 1 :] = -math.inf
 
@@ -1229,18 +1230,17 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 next_sent_beam = []
 
                 # next tokens for this sentence
+#                for idx, score in zip(next_tokens[batch_idx], next_scores[batch_idx]):
                 for idx, score in zip(next_tokens[batch_idx], next_scores[batch_idx]):
-
                     # get beam and word IDs
                     beam_id = idx // vocab_size
                     token_id = idx % vocab_size
 
                     # add to generated hypotheses if end of sentence or last iteration
                     if eos_token_ids is not None and token_id.item() in eos_token_ids:
+                        effective_beam_id = batch_idx * num_beams + beam_id
                         generated_hyps[batch_idx].add(
-                            input_ids[
-                                batch_idx * num_beams + beam_id, :cur_len
-                            ].clone(),
+                            input_ids[effective_beam_id].clone(),
                             score.item(),
                         )
                     else:
@@ -1252,6 +1252,10 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                     # the beam for next step is full
                     if len(next_sent_beam) == num_beams:
                         break
+                    # Check if were done so that we can save a pad step if all(done)
+                    done[batch_idx] = done[batch_idx] or generated_hyps[batch_idx].is_done(
+                        next_scores[batch_idx].max().item(), cur_len=cur_len + 1,
+                    )
 
                 # update next beam content
                 assert len(next_sent_beam) == num_beams, "Beam should always be full"
@@ -1283,13 +1287,12 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
             # Add all open beam hypothesis to generated_hyps
             if done[batch_idx]:
                 continue
-            for idx, score in zip(next_tokens[batch_idx], next_scores[batch_idx]):
-                # get beam and word IDs
+            for beam_id in range(num_beams):
                 effective_beam_id = batch_idx * num_beams + beam_id
-                beam_id = idx // vocab_size
-                token_id = idx % vocab_size
+                score = beam_scores[effective_beam_id]
+                final_tokens = input_ids[effective_beam_id]
                 generated_hyps[batch_idx].add(
-                    input_ids[effective_beam_id, :cur_len].clone(), score.item()
+                    final_tokens, score.item()
                 )
 
         # depending on whether greedy generation is wanted or not define different output_batch_size and output_num_return_sequences_per_batch
@@ -1314,7 +1317,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         # shorter batches are filled with pad_token
         if sent_lengths.min().item() != sent_lengths.max().item():
             assert pad_token_id is not None, "`Pad_token_id` has to be defined"
-            sent_max_len = min(sent_lengths.max().item() + 1, max_length)
+            sent_max_len = min(sent_lengths.max().item() + 1, max_length + 1)
             decoded = input_ids.new(output_batch_size, sent_max_len).fill_(pad_token_id)
 
             # fill with hypothesis and eos_token_id if necessary
@@ -1329,7 +1332,8 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 torch.stack(best).type(torch.long).to(next(self.parameters()).device)
             )
 
-        return decoded
+        return decoded[:, 1:]
+#        return decoded
 
     @staticmethod
     def _reorder_cache(past, beam_idx):
