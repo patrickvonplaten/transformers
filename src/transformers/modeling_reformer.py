@@ -216,11 +216,11 @@ class ReformerEmbeddings(nn.Module):
 
         # dropout
         if self.dropout > 0:
-            embeddings = nn.functional.dropout(inputs_embeds, p=self.dropout, training=self.training)
+            inputs_embeds = nn.functional.dropout(inputs_embeds, p=self.dropout, training=self.training)
 
         # add positional embeddings
         position_embeddings = self.position_embeddings(position_ids)
-        embeddings = embeddings + position_embeddings
+        embeddings = inputs_embeds + position_embeddings
         return embeddings
 
 
