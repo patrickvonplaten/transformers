@@ -172,7 +172,9 @@ class PositionEmbeddings(nn.Module):
 
     def forward(self, position_ids):
         position_embeddings = self.embedding(position_ids)
-        position_embeddings = nn.functional.dropout(position_embeddings, p=self.dropout, training=self.training)
+
+        if self.dropout > 0:
+            position_embeddings = nn.functional.dropout(position_embeddings, p=self.dropout, training=self.training)
         return position_embeddings
 
 
@@ -213,7 +215,8 @@ class ReformerEmbeddings(nn.Module):
         )
 
         # dropout
-        embeddings = nn.functional.dropout(inputs_embeds, p=self.dropout, training=self.training)
+        if self.dropout > 0:
+            embeddings = nn.functional.dropout(inputs_embeds, p=self.dropout, training=self.training)
 
         # add positional embeddings
         position_embeddings = self.position_embeddings(position_ids)
@@ -603,7 +606,8 @@ class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
         del query_key_dots
 
         # dropout
-        attention_probs = nn.functional.dropout(attention_probs, p=self.dropout, training=self.training)
+        if self.dropout > 0:
+            attention_probs = nn.functional.dropout(attention_probs, p=self.dropout, training=self.training)
 
         # Mask heads if we want to
         if head_mask is not None:
@@ -850,7 +854,8 @@ class LocalSelfAttention(nn.Module, EfficientAttentionMixin):
         del logits
 
         # dropout
-        attention_probs = nn.functional.dropout(attention_probs, p=self.dropout, training=self.training)
+        if self.dropout > 0:
+            attention_probs = nn.functional.dropout(attention_probs, p=self.dropout, training=self.training)
 
         # Mask heads if we want to
         if head_mask is not None:
@@ -909,7 +914,9 @@ class ReformerSelfOutput(nn.Module):
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+
+        if self.dropout > 0:
+            hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         return hidden_states
 
 
@@ -986,7 +993,8 @@ class ReformerFeedForwardDense(nn.Module):
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        if self.dropout > 0:
+            hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = self.act_fn(hidden_states)
         return hidden_states
 
@@ -1000,7 +1008,8 @@ class ReformerFeedForwardOutput(nn.Module):
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        if self.dropout > 0:
+            hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         return hidden_states
 
 
@@ -1329,7 +1338,8 @@ class ReformerEncoder(nn.Module):
         hidden_states = self.layer_norm(hidden_states)
 
         # Apply dropout
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        if self.dropout > 0:
+            hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         return ReformerEncoderOutput(
             hidden_states=hidden_states, all_hidden_states=all_hidden_states, all_attentions=all_attentions
