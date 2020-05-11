@@ -1754,8 +1754,8 @@ class ReformerModelWithLMHead(ReformerPreTrainedModel):
 
         if labels is not None:
             # Shift so that tokens < n predict n
-#            shift_logits = logits[..., :-1, :].contiguous()
-#            shift_labels = labels[..., 1:].contiguous()
+            #            shift_logits = logits[..., :-1, :].contiguous()
+            #            shift_labels = labels[..., 1:].contiguous()
 
             # Uncomment for gradient test
             shift_logits = logits.contiguous()
