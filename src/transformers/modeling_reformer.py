@@ -459,16 +459,25 @@ class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
         # remove gradient
         vectors = vectors.detach()
 
+        # hash seed
         if self.hash_seed is not None:
-            # for determinism
-            torch.manual_seed(self.hash_seed)
+            rotations_shape = (vectors.shape[-1], num_hashes, rotation_size // 2)
+            np.random.seed(self.hash_seed)
+            random_rotations = torch.tensor(
+                np.random.normal(size=rotations_shape), dtype=vectors.dtype, device=vectors.device,
+            )
+            rotated_vectors = torch.einsum("bmtd,dhr->bmhtr", vectors, random_rotations)
+        else:
+            rotations_shape = (self.num_attention_heads, vectors.shape[-1], num_hashes, rotation_size // 2)
+            # create a random self.attention_head_size x num_hashes x num_buckets/2
+            random_rotations = torch.randn(rotations_shape, device=vectors.device).to(vectors.dtype)
 
-        rotations_shape = (self.num_attention_heads, vectors.shape[-1], num_hashes, rotation_size // 2)
-        # create a random self.attention_head_size x num_hashes x num_buckets/2
-        random_rotations = torch.randn(rotations_shape, device=vectors.device, dtype=vectors.dtype)
-
-        # Output dim: Batch_Size x Num_Attn_Heads x Num_Hashes x Seq_Len x Num_Buckets/2
-        rotated_vectors = torch.einsum("bmtd,mdhr->bmhtr", vectors, random_rotations)
+            # rotated_vectors has dim:
+            # Output dim: Batch_Size x Num_Attn_Heads x Num_Hashes x Seq_Len x Num_Buckets/2
+            # TODO: IMPORTANT: At the moment we use the same random rotation over all batches
+            # -> is that bad? It seems like in original reformer a different random
+            # rotation is used batches
+            rotated_vectors = torch.einsum("bmtd,mdhr->bmhtr", vectors, random_rotations)
 
         if isinstance(self.num_buckets, int) or len(self.num_buckets) == 1:
             rotated_vectors = torch.cat([rotated_vectors, -rotated_vectors], dim=-1)
@@ -1745,8 +1754,12 @@ class ReformerModelWithLMHead(ReformerPreTrainedModel):
 
         if labels is not None:
             # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
+#            shift_logits = logits[..., :-1, :].contiguous()
+#            shift_labels = labels[..., 1:].contiguous()
+
+            # Uncomment for gradient test
+            shift_logits = logits.contiguous()
+            shift_labels = labels.contiguous()
             # Flatten the tokens
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
