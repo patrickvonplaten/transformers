@@ -1090,7 +1090,7 @@ class ReformerLayer(nn.Module):
             # every forward pass we sample a different seed
             # for dropout and save for forward fn in backward pass
             # to have correct dropout
-            self._init_attention_seed()
+#            self._init_attention_seed()
             attn_outputs = self.attention(
                 hidden_states=hidden_states,
                 head_mask=head_mask,
@@ -1110,7 +1110,7 @@ class ReformerLayer(nn.Module):
             # every forward pass we sample a different seed
             # for dropout and save seed for forward fn in backward
             # to have correct dropout
-            self._init_feed_forward_seed()
+#            self._init_feed_forward_seed()
             # Y_2 = X_2 + g(Y_1)
             hidden_states = hidden_states + self.feed_forward(attn_output)
 
@@ -1140,7 +1140,7 @@ class ReformerLayer(nn.Module):
             next_attn_output.requires_grad = True
 
             # set seed to have correct dropout
-            torch.manual_seed(self.feed_forward_seed)
+#            torch.manual_seed(self.feed_forward_seed)
             # g(Y_1)
             res_hidden_states = self.feed_forward(next_attn_output)
             res_hidden_states.backward(grad_hidden_states, retain_graph=True)
@@ -1157,7 +1157,7 @@ class ReformerLayer(nn.Module):
             hidden_states.requires_grad = True
 
             # set seed to have correct dropout
-            torch.manual_seed(self.attention_seed)
+#            torch.manual_seed(self.attention_seed)
             # f(X_2)
             # use cached buckets for backprob if buckets not None for LSHSelfAttention
             output = self.attention(
