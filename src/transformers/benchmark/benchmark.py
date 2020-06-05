@@ -96,7 +96,12 @@ class PyTorchBenchmark(Benchmark):
     def inference(self, model_name, batch_size, sequence_length, trace_memory=False):
         try:
             config = self.config_dict[model_name]
-            model = MODEL_MAPPING[config.__class__](config)
+
+            if self.args.use_language_model:
+                model = MODEL_WITH_LM_HEAD_MAPPING[config.__class__](config)
+            else:
+                model = MODEL_MAPPING[config.__class__](config)
+
             model.to(self.args.device)
             model.eval()
 
