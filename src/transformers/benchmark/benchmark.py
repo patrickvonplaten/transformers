@@ -97,7 +97,7 @@ class PyTorchBenchmark(Benchmark):
         try:
             config = self.config_dict[model_name]
 
-            if self.args.use_language_model:
+            if self.args.with_lm_head:
                 model = MODEL_WITH_LM_HEAD_MAPPING[config.__class__](config)
             else:
                 model = MODEL_MAPPING[config.__class__](config)
