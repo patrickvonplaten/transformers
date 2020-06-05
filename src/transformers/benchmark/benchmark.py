@@ -51,8 +51,10 @@ class PyTorchBenchmark(Benchmark):
             model.to(self.args.device)
             model.train()
 
+            # encoder-decoder has vocab size saved differently
+            vocab_size = config.vocab_size if hasattr(config, "vocab_size") else config.encoder.vocab_size
             input_ids = torch.randint(
-                model.config.vocab_size, (batch_size, sequence_length), dtype=torch.long, device=self.args.device
+                vocab_size, (batch_size, sequence_length), dtype=torch.long, device=self.args.device
             )
 
             def compute_loss_and_backprob_encoder():
@@ -105,8 +107,11 @@ class PyTorchBenchmark(Benchmark):
             model.to(self.args.device)
             model.eval()
 
+            # encoder-decoder has vocab size saved differently
+            vocab_size = config.vocab_size if hasattr(config, "vocab_size") else config.encoder.vocab_size
+
             input_ids = torch.randint(
-                config.vocab_size, (batch_size, sequence_length), dtype=torch.long, device=self.args.device
+                vocab_size, (batch_size, sequence_length), dtype=torch.long, device=self.args.device
             )
 
             def encoder_decoder_forward():
