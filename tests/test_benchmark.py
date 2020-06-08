@@ -110,3 +110,29 @@ class BenchmarkTest(unittest.TestCase):
             self.assertTrue(Path(os.path.join(tmp_dir, "inf_mem.csv")).exists())
             self.assertTrue(Path(os.path.join(tmp_dir, "train_mem.csv")).exists())
             self.assertTrue(Path(os.path.join(tmp_dir, "env.csv")).exists())
+
+    def test_trace_memory(self):
+        MODEL_ID = "sshleifer/tiny-gpt2"
+
+        def _check_summary_is_not_empty(summary):
+            self.assertTrue(hasattr(summary, "sequential"))
+            self.assertTrue(hasattr(summary, "cumulative"))
+            self.assertTrue(hasattr(summary, "current"))
+            self.assertTrue(hasattr(summary, "total"))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            benchmark_args = PyTorchBenchmarkArguments(
+                models=[MODEL_ID],
+                training=True,
+                no_inference=False,
+                sequence_lengths=[8],
+                batch_sizes=[1],
+                log_filename=os.path.join(tmp_dir, "log.txt"),
+                log_print=True,
+                trace_memory_line_by_line=True,
+            )
+            benchmark = PyTorchBenchmark(benchmark_args)
+            result = benchmark.run()
+            _check_summary_is_not_empty(result.inference_summary)
+            _check_summary_is_not_empty(result.train_summary)
+            self.assertTrue(Path(os.path.join(tmp_dir, "log.txt")).exists())

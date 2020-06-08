@@ -58,9 +58,6 @@ class PyTorchBenchmark(Benchmark):
                 vocab_size, (batch_size, sequence_length), dtype=torch.long, device=self.args.device
             )
 
-            import ipdb
-            ipdb.set_trace()
-
             def compute_loss_and_backprob_encoder():
                 loss = model(input_ids, labels=input_ids)[0]
                 loss.backward()
@@ -71,7 +68,11 @@ class PyTorchBenchmark(Benchmark):
                 loss.backward()
                 model.zero_grad()
 
-            _train = compute_loss_and_backprob_encoder_decoder if config.is_encoder_decoder else compute_loss_and_backprob_encoder
+            _train = (
+                compute_loss_and_backprob_encoder_decoder
+                if config.is_encoder_decoder
+                else compute_loss_and_backprob_encoder
+            )
 
             if trace_memory is True:
                 if self.args.trace_memory_line_by_line:
@@ -93,6 +94,8 @@ class PyTorchBenchmark(Benchmark):
 
                 if self.args.trace_memory_line_by_line:
                     summary = stop_memory_tracing(trace)
+                else:
+                    summary = None
 
                 if self.args.n_gpu > 0:
                     # gpu
@@ -116,9 +119,9 @@ class PyTorchBenchmark(Benchmark):
                         memory = "N/A"
                     else:
                         process = psutil.Process(os.getpid())
-                        memory = process.memory_info().rss
+                        memory = Memory(process.memory_info().rss)
 
-                return memory
+                return memory, summary
             else:
                 # as written in https://docs.python.org/2/library/timeit.html#timeit.Timer.repeat, min should be taken rather than the average
                 runtimes = timeit.repeat(_train, repeat=self.args.repeat, number=10,)
@@ -173,6 +176,8 @@ class PyTorchBenchmark(Benchmark):
 
                 if self.args.trace_memory_line_by_line:
                     summary = stop_memory_tracing(trace)
+                else:
+                    summary = None
 
                 if self.args.n_gpu > 0:
                     # gpu
@@ -195,9 +200,9 @@ class PyTorchBenchmark(Benchmark):
                         memory = "N/A"
                     else:
                         process = psutil.Process(os.getpid())
-                        memory = process.memory_info().rss
+                        memory = Memory(process.memory_info().rss)
 
-                return memory
+                return memory, summary
             else:
                 # as written in https://docs.python.org/2/library/timeit.html#timeit.Timer.repeat, min should be taken rather than the average
                 runtimes = timeit.repeat(_forward, repeat=self.args.repeat, number=10,)
