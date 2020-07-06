@@ -23,6 +23,7 @@ import numpy as np
 import trax
 from transformers import is_torch_available
 from trax.shapes import ShapeDtype as trax_ShapeDtype
+from trax import shapes
 
 from .test_configuration_common import ConfigTester
 from .test_modeling_common import ModelTesterMixin, floats_tensor, ids_tensor
@@ -968,16 +969,18 @@ class ReformerIntegrationTestsDynamic(unittest.TestCase):
     # This code has to be used with patrickvonplaten's fork of trax to work
     def test_lsh_layer(self):
         config = ReformerConfig(hash_seed=0)
+        config.is_decoder = False
         shape = (3, 64, config.hidden_size)  # Batch x SeqLen x hiddenSize
         np_input = np.random.rand(*shape)
 
+        mask = np.ones(shape[:-1], dtype=np.int32)
+        mask[:, :10] = 0
+
         trax_layer = self.load_lsh_layer(config)
-        input_signature = trax_ShapeDtype(shape, np.float32)
+        input_signature = shapes.signature([np_input, mask])
         trax_weights, trax_state = trax_layer.init(input_signature)
 
-        mask = np.ones(shape[:-1], dtype=np.int32)
-
-        trax_output = trax_layer(np_input, weights=trax_weights, state=trax_state)
+        trax_output = trax_layer([np_input, mask], weights=trax_weights, state=trax_state)
 
         trax_torch_output = torch.tensor(np.asarray(trax_output))
 
@@ -994,15 +997,18 @@ class ReformerIntegrationTestsDynamic(unittest.TestCase):
 
     def test_local_layer(self):
         config = ReformerConfig(hash_seed=0)
+        config.is_decoder = False
         shape = (1, 64, config.hidden_size)  # Batch x SeqLen x hiddenSize
         np_input = np.random.rand(*shape)
 
         trax_layer = self.load_local_layer(config)
-        input_signature = trax_ShapeDtype(shape, np.float32)
-        trax_weights, trax_state = trax_layer.init(input_signature)
         mask = np.ones(shape[:-1], dtype=np.int32)
+        mask[:, :10] = 0
 
-        trax_output = trax_layer(np_input, weights=trax_weights, state=trax_state)
+        input_signature = shapes.signature([np_input, mask])
+        trax_weights, trax_state = trax_layer.init(input_signature)
+
+        trax_output = trax_layer([np_input, mask], weights=trax_weights, state=trax_state)
 
         hf_input = torch.tensor(np_input, dtype=torch.float)
         config.attn_layers = ["local"]
@@ -1168,19 +1174,20 @@ class ReformerIntegrationTestsDynamic(unittest.TestCase):
             import trax.layers
             # Parameters for LSHSelfAttention:
             # ==============================================================================
-            LSHSelfAttention.n_heads = {}
-            LSHSelfAttention.d_qk = {}
-            LSHSelfAttention.d_v = {}
-            LSHSelfAttention.chunk_len = {}
-            LSHSelfAttention.n_chunks_before = {}
-            LSHSelfAttention.n_chunks_after = {}
-            LSHSelfAttention.n_hashes = {}
-            LSHSelfAttention.n_buckets = {}
-            LSHSelfAttention.attention_dropout = {}
-            LSHSelfAttention.output_dropout = {}
-            LSHSelfAttention.lsh_seed = {}
-            LSHSelfAttention.causal= {}
-            LSHSelfAttention.use_reference_code = True
+            trax.layers.LSHSelfAttention.n_heads = {}
+            trax.layers.LSHSelfAttention.d_qk = {}
+            trax.layers.LSHSelfAttention.d_v = {}
+            trax.layers.LSHSelfAttention.chunk_len = {}
+            trax.layers.LSHSelfAttention.n_chunks_before = {}
+            trax.layers.LSHSelfAttention.n_chunks_after = {}
+            trax.layers.LSHSelfAttention.n_hashes = {}
+            trax.layers.LSHSelfAttention.n_buckets = {}
+            trax.layers.LSHSelfAttention.attention_dropout = {}
+            trax.layers.LSHSelfAttention.output_dropout = {}
+            trax.layers.LSHSelfAttention.lsh_seed = {}
+            trax.layers.LSHSelfAttention.causal= {}
+            trax.layers.LSHSelfAttention.use_reference_code = True
+            trax.layers.LSHSelfAttention.masked = True
             """.format(
             config.num_attention_heads,
             config.attention_head_size,
@@ -1199,22 +1206,22 @@ class ReformerIntegrationTestsDynamic(unittest.TestCase):
         layer = trax.layers.LSHSelfAttention(mode=mode)
         return layer
 
-    def load_local_layer(self, config, mask=False, mode="eval"):
+    def load_local_layer(self, config, mode="eval"):
         gin_config = """
             import trax.layers
             # Parameters for SelfAttention:
             # ==============================================================================
-            SelfAttention.n_heads = {}
-            SelfAttention.d_qk = {}
-            SelfAttention.d_v = {}
-            SelfAttention.chunk_len = {}
-            SelfAttention.n_chunks_before = {}
-            SelfAttention.n_chunks_after = {}
-            SelfAttention.attention_dropout = {}
-            SelfAttention.output_dropout = {}
-            SelfAttention.causal = {}
-            SelfAttention.masked= {}
-            SelfAttention.use_reference_code = True
+            trax.layers.SelfAttention.n_heads = {}
+            trax.layers.SelfAttention.d_qk = {}
+            trax.layers.SelfAttention.d_v = {}
+            trax.layers.SelfAttention.chunk_len = {}
+            trax.layers.SelfAttention.n_chunks_before = {}
+            trax.layers.SelfAttention.n_chunks_after = {}
+            trax.layers.SelfAttention.attention_dropout = {}
+            trax.layers.SelfAttention.output_dropout = {}
+            trax.layers.SelfAttention.causal = {}
+            trax.layers.SelfAttention.masked= True
+            trax.layers.SelfAttention.use_reference_code = True
             """.format(
             config.num_attention_heads,
             config.attention_head_size,
@@ -1225,7 +1232,6 @@ class ReformerIntegrationTestsDynamic(unittest.TestCase):
             config.local_attention_probs_dropout_prob,
             config.hidden_dropout_prob,
             config.is_decoder,
-            mask,
         )
         gin.parse_config(gin_config)
         layer = trax.layers.SelfAttention(mode=mode)
