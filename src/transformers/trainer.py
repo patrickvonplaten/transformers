@@ -990,6 +990,16 @@ class Trainer:
 
         for inputs in tqdm(dataloader, desc=description):
             loss, logits, labels = self.prediction_step(model, inputs, prediction_loss_only)
+
+            if self.args.predict_from_generate:
+                max_length = model.config.max_length
+                logits_out = model.generate(inputs["input_ids"], attention_mask=inputs["attention_mask"])
+                # in case the batch is shorter then max length, the output should be padded
+                logits = model.config.eos_token_id * torch.ones(
+                    (logits_out.shape[0], max_length), dtype=logits_out.dtype, device=logits_out.device
+                )
+                logits[:, : logits_out.shape[-1]] = logits_out
+
             if loss is not None:
                 eval_losses.append(loss)
             if logits is not None:
