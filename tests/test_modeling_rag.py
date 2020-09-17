@@ -192,9 +192,16 @@ class RagModelTester:
         return input_ids, attention_mask
 
 
+@require_torch
+@require_retrieval
 class RagTestMixin:
 
-    all_model_classes = (RagModel, RagTokenForGeneration, RagSequenceForGeneration)
+    all_model_classes = (
+        (RagModel, RagTokenForGeneration, RagSequenceForGeneration)
+        if is_torch_available() and is_datasets_available() and is_faiss_available() and is_psutil_available()
+        else ()
+    )
+
     retrieval_vector_size = 32
     n_docs = 2
     max_combined_length = 16
@@ -273,7 +280,7 @@ class RagTestMixin:
     def tearDown(self):
         shutil.rmtree(self.tmpdirname)
 
-    def get_retriever(self, config) -> RagRetriever:
+    def get_retriever(self, config):
         dataset = Dataset.from_dict(
             {
                 "id": ["0", "1"],
@@ -323,6 +330,25 @@ class RagTestMixin:
             )
             # doc scores
             self.assertEqual(outputs.doc_scores.shape, (input_ids.shape[0], self.n_docs))
+
+    def check_model_generate(
+        self, config, input_ids, attention_mask, decoder_input_ids, decoder_attention_mask, **kwargs
+    ):
+        self.assertIsNotNone(config.question_encoder)
+        self.assertIsNotNone(config.generator)
+
+        for model_class in self.all_model_classes[1:]:
+            model = model_class(config, retriever=self.get_retriever(config)).to(torch_device)
+            model.eval()
+
+            self.assertTrue(model.config.is_encoder_decoder)
+
+            outputs = model.generate(
+                input_ids=input_ids,
+                num_beams=2,
+                num_return_sequences=2,
+                decoder_start_token_id=config.generator.eos_token_id,
+            )
 
     def check_model_without_retriever(
         self, config, input_ids, attention_mask, decoder_input_ids, decoder_attention_mask, **kwargs
@@ -436,6 +462,10 @@ class RagTestMixin:
     def test_model_with_encoder_outputs(self):
         inputs_dict = self.config_and_inputs
         self.check_model_with_encoder_outputs(**inputs_dict)
+
+    def test_model_generate(self):
+        inputs_dict = self.config_and_inputs
+        self.check_model_generate(**inputs_dict)
 
 
 @require_torch
