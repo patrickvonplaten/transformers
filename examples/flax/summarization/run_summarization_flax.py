@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding=utf-8
-# Copyright The HuggingFace Team and The HuggingFace Inc. team. All rights reserved.
+# Copyright 2021 The HuggingFace Team and The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,39 +14,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Fine-tuning a 🤗 Transformers model on summarization.
+Fine-tuning a 🤗 Flax Transformers model on summarization.
 """
 # You can also adapt this script on your own summarization task. Pointers for this are left as comments.
 
 import argparse
 import logging
-import math
 import os
 import random
 
 import datasets
 import nltk
-import numpy as np
-import torch
 from datasets import load_dataset, load_metric
 from torch.utils.data.dataloader import DataLoader
 from tqdm.auto import tqdm
 
 import transformers
-from accelerate import Accelerator
 from filelock import FileLock
-from transformers import (
-    CONFIG_MAPPING,
-    MODEL_MAPPING,
-    AdamW,
-    AutoConfig,
-    AutoModelForSeq2SeqLM,
-    AutoTokenizer,
-    DataCollatorForSeq2Seq,
-    SchedulerType,
-    get_scheduler,
-    set_seed,
-)
+from transformers import CONFIG_MAPPING, MODEL_MAPPING, AutoConfig, AutoTokenizer, FlaxAutoModelForSeq2SeqLM
 from transformers.file_utils import is_offline_mode
 
 
@@ -272,6 +257,108 @@ def parse_args():
     return args
 
 
+def create_train_state(
+    model: FlaxAutoModelForSequenceClassification,
+    learning_rate_fn: Callable[[int], float],
+    is_regression: bool,
+    num_labels: int,
+    weight_decay: float,
+) -> train_state.TrainState:
+    """Create initial training state."""
+
+    class TrainState(train_state.TrainState):
+        """Train state with an Optax optimizer.
+
+        The two functions below differ depending on whether the task is classification
+        or regression.
+
+        Args:
+          logits_fn: Applied to last layer to obtain the logits.
+          loss_fn: Function to compute the loss.
+        """
+
+        logits_fn: Callable = struct.field(pytree_node=False)
+        loss_fn: Callable = struct.field(pytree_node=False)
+
+    # We use Optax's "masking" functionality to not apply weight decay
+    # to bias and LayerNorm scale parameters. decay_mask_fn returns a
+    # mask boolean with the same structure as the parameters.
+    # The mask is True for parameters that should be decayed.
+    def decay_mask_fn(params):
+        flat_params = traverse_util.flatten_dict(params)
+        flat_mask = {path: (path[-1] != "bias" and path[-2:] != ("LayerNorm", "scale")) for path in flat_params}
+        return traverse_util.unflatten_dict(flat_mask)
+
+    tx = optax.adamw(
+        learning_rate=learning_rate_fn, b1=0.9, b2=0.999, eps=1e-6, weight_decay=weight_decay, mask=decay_mask_fn
+    )
+
+    if is_regression:
+
+        def mse_loss(logits, labels):
+            return jnp.mean((logits[..., 0] - labels) ** 2)
+
+        return TrainState.create(
+            apply_fn=model.__call__,
+            params=model.params,
+            tx=tx,
+            logits_fn=lambda logits: logits[..., 0],
+            loss_fn=mse_loss,
+        )
+    else:  # Classification.
+
+        def cross_entropy_loss(logits, labels):
+            xentropy = optax.softmax_cross_entropy(logits, onehot(labels, num_classes=num_labels))
+            return jnp.mean(xentropy)
+
+        return TrainState.create(
+            apply_fn=model.__call__,
+            params=model.params,
+            tx=tx,
+            logits_fn=lambda logits: logits.argmax(-1),
+            loss_fn=cross_entropy_loss,
+        )
+
+
+def create_learning_rate_fn(
+    train_ds_size: int, train_batch_size: int, num_train_epochs: int, num_warmup_steps: int, learning_rate: float
+) -> Callable[[int], jnp.array]:
+    """Returns a linear warmup, linear_decay learning rate function."""
+    steps_per_epoch = train_ds_size // train_batch_size
+    num_train_steps = steps_per_epoch * num_train_epochs
+    warmup_fn = optax.linear_schedule(init_value=0.0, end_value=learning_rate, transition_steps=num_warmup_steps)
+    decay_fn = optax.linear_schedule(
+        init_value=learning_rate, end_value=0, transition_steps=num_train_steps - num_warmup_steps
+    )
+    schedule_fn = optax.join_schedules(schedules=[warmup_fn, decay_fn], boundaries=[num_warmup_steps])
+    return schedule_fn
+
+
+def glue_train_data_collator(rng: PRNGKey, dataset: Dataset, batch_size: int):
+    """Returns shuffled batches of size `batch_size` from truncated `train dataset`, sharded over all local devices."""
+    steps_per_epoch = len(dataset) // batch_size
+    perms = jax.random.permutation(rng, len(dataset))
+    perms = perms[: steps_per_epoch * batch_size]  # Skip incomplete batch.
+    perms = perms.reshape((steps_per_epoch, batch_size))
+
+    for perm in perms:
+        batch = dataset[perm]
+        batch = {k: jnp.array(v) for k, v in batch.items()}
+        batch = shard(batch)
+
+        yield batch
+
+
+def glue_eval_data_collator(dataset: Dataset, batch_size: int):
+    """Returns batches of size `batch_size` from `eval dataset`, sharded over all local devices."""
+    for i in range(len(dataset) // batch_size):
+        batch = dataset[i * batch_size : (i + 1) * batch_size]
+        batch = {k: jnp.array(v) for k, v in batch.items()}
+        batch = shard(batch)
+
+        yield batch
+
+
 def main():
     args = parse_args()
 
@@ -286,29 +373,19 @@ def main():
             "You're running a t5 model but didn't provide a source prefix, which is the expected, e.g. with "
             "`--source_prefix 'summarize: ' `"
         )
-    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
-    accelerator = Accelerator()
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
     )
-    logger.info(accelerator.state)
 
     # Setup logging, we only want one process per machine to log things on the screen.
     # accelerator.is_local_main_process is only True for one process per machine.
-    logger.setLevel(logging.INFO if accelerator.is_local_main_process else logging.ERROR)
-    if accelerator.is_local_main_process:
-        datasets.utils.logging.set_verbosity_warning()
-        transformers.utils.logging.set_verbosity_info()
-    else:
-        datasets.utils.logging.set_verbosity_error()
-        transformers.utils.logging.set_verbosity_error()
+    logger.setLevel(logging.INFO)
 
-    # If passed along, set the training seed now.
-    if args.seed is not None:
-        set_seed(args.seed)
+    datasets.utils.logging.set_verbosity_warning()
+    transformers.utils.logging.set_verbosity_info()
 
     # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
@@ -356,16 +433,15 @@ def main():
         )
 
     if args.model_name_or_path:
-        model = AutoModelForSeq2SeqLM.from_pretrained(
+        model = FlaxAutoModelForSeq2SeqLM.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
             config=config,
         )
     else:
         logger.info("Training new model from scratch")
-        model = AutoModelForSeq2SeqLM.from_config(config)
+        model = FlaxAutoModelForSeq2SeqLM.from_config(config)
 
-    model.resize_token_embeddings(len(tokenizer))
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
@@ -429,8 +505,40 @@ def main():
     for index in random.sample(range(len(train_dataset)), 1):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
+    # Define a summary writer
+    summary_writer = tensorboard.SummaryWriter(args.output_dir)
+    summary_writer.hparams(vars(args))
+
+    def write_metric(train_metrics, eval_metrics, train_time, step):
+        summary_writer.scalar("train_time", train_time, step)
+
+        train_metrics = get_metrics(train_metrics)
+        for key, vals in train_metrics.items():
+            tag = f"train_{key}"
+            for i, val in enumerate(vals):
+                summary_writer.scalar(tag, val, step - len(vals) + i + 1)
+
+        for metric_name, value in eval_metrics.items():
+            summary_writer.scalar(f"eval_{metric_name}", value, step)
+
+    num_epochs = int(args.num_train_epochs)
+    rng = jax.random.PRNGKey(args.seed)
+    dropout_rngs = jax.random.split(rng, jax.local_device_count())
+
+    train_batch_size = args.per_device_train_batch_size * jax.local_device_count()
+    eval_batch_size = args.per_device_eval_batch_size * jax.local_device_count()
+
+    learning_rate_fn = create_learning_rate_fn(
+        len(train_dataset), train_batch_size, args.num_train_epochs, args.num_warmup_steps, args.learning_rate
+    )
+
+    state = create_train_state(
+        model, learning_rate_fn, is_regression, num_labels=num_labels, weight_decay=args.weight_decay
+    )
+
     label_pad_token_id = -100 if args.ignore_pad_token_for_loss else tokenizer.pad_token_id
-    data_collator = DataCollatorForSeq2Seq(
+
+    data_collator = FlaxDataCollatorForSeq2Seq(
         tokenizer,
         model=model,
         label_pad_token_id=label_pad_token_id,
@@ -452,127 +560,89 @@ def main():
     )
     eval_dataloader = DataLoader(eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size)
 
-    # Optimizer
-    # Split weights in two groups, one with weight decay and the other not.
-    no_decay = ["bias", "LayerNorm.weight"]
-    optimizer_grouped_parameters = [
-        {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": args.weight_decay,
-        },
-        {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-            "weight_decay": 0.0,
-        },
-    ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
-
-    # Prepare everything with our `accelerator`.
-    model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-        model, optimizer, train_dataloader, eval_dataloader
-    )
-
-    # Note -> the training dataloader needs to be prepared before we grab his length below (cause its length will be
-    # shorter in multiprocess)
-
-    # Scheduler and math around the number of training steps.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
-    if args.max_train_steps is None:
-        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-    else:
-        args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
-
-    lr_scheduler = get_scheduler(
-        name=args.lr_scheduler_type,
-        optimizer=optimizer,
-        num_warmup_steps=args.num_warmup_steps,
-        num_training_steps=args.max_train_steps,
-    )
-
     # Metric
     metric = load_metric("rouge")
 
-    # Train!
-    total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    # define step functions
+    def train_step(
+        state: train_state.TrainState, batch: Dict[str, Array], dropout_rng: PRNGKey
+    ) -> Tuple[train_state.TrainState, float]:
+        """Trains model with an optimizer (both in `state`) on `batch`, returning a pair `(new_state, loss)`."""
+        dropout_rng, new_dropout_rng = jax.random.split(dropout_rng)
+        targets = batch.pop("labels")
 
-    logger.info("***** Running training *****")
-    logger.info(f"  Num examples = {len(train_dataset)}")
-    logger.info(f"  Num Epochs = {args.num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-    logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
-    completed_steps = 0
+        def loss_fn(params):
+            logits = state.apply_fn(**batch, params=params, dropout_rng=dropout_rng, train=True)[0]
+            loss = state.loss_fn(logits, targets)
+            return loss
 
-    for epoch in range(args.num_train_epochs):
-        model.train()
-        for step, batch in enumerate(train_dataloader):
-            outputs = model(**batch)
-            loss = outputs.loss
-            loss = loss / args.gradient_accumulation_steps
-            accelerator.backward(loss)
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
-                progress_bar.update(1)
-                completed_steps += 1
+        grad_fn = jax.value_and_grad(loss_fn)
+        loss, grad = grad_fn(state.params)
+        grad = jax.lax.pmean(grad, "batch")
+        new_state = state.apply_gradients(grads=grad)
+        metrics = jax.lax.pmean({"loss": loss, "learning_rate": learning_rate_fn(state.step)}, axis_name="batch")
+        return new_state, metrics, new_dropout_rng
 
-            if completed_steps >= args.max_train_steps:
-                break
+    p_train_step = jax.pmap(train_step, axis_name="batch", donate_argnums=(0,))
 
-        model.eval()
-        if args.val_max_target_length is None:
-            args.val_max_target_length = args.max_target_length
+    def eval_step(state, batch):
+        logits = state.apply_fn(**batch, params=state.params, train=False)[0]
+        return state.logits_fn(logits)
 
-        gen_kwargs = {
-            "max_length": args.val_max_target_length if args is not None else config.max_length,
-            "num_beams": args.num_beams,
-        }
-        for step, batch in enumerate(eval_dataloader):
-            with torch.no_grad():
-                generated_tokens = accelerator.unwrap_model(model).generate(
-                    batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    **gen_kwargs,
-                )
+    p_eval_step = jax.pmap(eval_step, axis_name="batch")
 
-                generated_tokens = accelerator.pad_across_processes(
-                    generated_tokens, dim=1, pad_index=tokenizer.pad_token_id
-                )
-                labels = batch["labels"]
-                if not args.pad_to_max_length:
-                    # If we did not pad to max length, we need to pad the labels too
-                    labels = accelerator.pad_across_processes(batch["labels"], dim=1, pad_index=tokenizer.pad_token_id)
+    logger.info(f"===== Starting training ({num_epochs} epochs) =====")
+    train_time = 0
 
-                generated_tokens = accelerator.gather(generated_tokens).cpu().numpy()
-                labels = accelerator.gather(labels).cpu().numpy()
+    # make sure weights are replicated on each device
+    state = replicate(state)
 
-                if args.ignore_pad_token_for_loss:
-                    # Replace -100 in the labels as we can't decode them.
-                    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-                if isinstance(generated_tokens, tuple):
-                    generated_tokens = generated_tokens[0]
-                decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-                decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    for epoch in range(1, num_epochs + 1):
+        logger.info(f"Epoch {epoch}")
+        logger.info("  Training...")
 
-                decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+        train_start = time.time()
+        train_metrics = []
+        rng, input_rng = jax.random.split(rng)
 
-                metric.add_batch(predictions=decoded_preds, references=decoded_labels)
-        result = metric.compute(use_stemmer=True)
-        # Extract a few results from ROUGE
-        result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+        # train
+        for batch in glue_train_data_collator(input_rng, train_dataset, train_batch_size):
+            state, metrics, dropout_rngs = p_train_step(state, batch, dropout_rngs)
+            train_metrics.append(metrics)
+        train_time += time.time() - train_start
+        logger.info(f"    Done! Training metrics: {unreplicate(metrics)}")
 
-        result = {k: round(v, 4) for k, v in result.items()}
+        logger.info("  Evaluating...")
 
-        logger.info(result)
+        # evaluate
+        for batch in glue_eval_data_collator(eval_dataset, eval_batch_size):
+            labels = batch.pop("labels")
+            predictions = p_eval_step(state, batch)
+            metric.add_batch(predictions=chain(*predictions), references=chain(*labels))
 
-    if args.output_dir is not None:
-        accelerator.wait_for_everyone()
-        unwrapped_model = accelerator.unwrap_model(model)
-        unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
+        # evaluate also on leftover examples (not divisible by batch_size)
+        num_leftover_samples = len(eval_dataset) % eval_batch_size
+
+        # make sure leftover batch is evaluated on one device
+        if num_leftover_samples > 0 and jax.process_index() == 0:
+            # take leftover samples
+            batch = eval_dataset[-num_leftover_samples:]
+            batch = {k: jnp.array(v) for k, v in batch.items()}
+
+            labels = batch.pop("labels")
+            predictions = eval_step(unreplicate(state), batch)
+            metric.add_batch(predictions=predictions, references=labels)
+
+        eval_metric = metric.compute()
+        logger.info(f"    Done! Eval metrics: {eval_metric}")
+
+        cur_step = epoch * (len(train_dataset) // train_batch_size)
+        write_metric(train_metrics, eval_metric, train_time, cur_step)
+
+    # save last checkpoint
+    if jax.process_index() == 0:
+        params = jax.device_get(jax.tree_map(lambda x: x[0], state.params))
+        model.save_pretrained(args.output_dir, params=params)
 
 
 if __name__ == "__main__":
