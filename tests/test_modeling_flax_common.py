@@ -55,6 +55,7 @@ if is_flax_available():
 
 if is_torch_available():
     import torch
+    from transformers import MODEL_MAPPING
 
 
 def _config_zero_init(config):
@@ -325,6 +326,29 @@ class FlaxModelTesterMixin:
 
                 for key in base_params_from_head.keys():
                     max_diff = (base_params[key] - base_params_from_head[key]).sum().item()
+                    self.assertLessEqual(max_diff, 1e-3, msg=f"{key} not identical")
+
+    @is_pt_flax_cross_test
+    def test_save_load_from_base_pt(self):
+        config, _ = self.model_tester.prepare_config_and_inputs_for_common()
+        base_class = FLAX_MODEL_MAPPING[config.__class__]
+
+        for model_class in self.all_model_classes:
+            if model_class == base_class:
+                continue
+
+            model = base_class(config)
+            base_params = flatten_dict(unfreeze(model.params))
+
+            # check that all base model weights are loaded correctly
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                model.save_pretrained(tmpdirname)
+                head_model = model_class.from_pretrained(tmpdirname)
+
+                base_param_from_head = flatten_dict(unfreeze(head_model.params[head_model.base_model_prefix]))
+
+                for key in base_param_from_head.keys():
+                    max_diff = (base_params[key] - base_param_from_head[key]).sum().item()
                     self.assertLessEqual(max_diff, 1e-3, msg=f"{key} not identical")
 
     @slow
