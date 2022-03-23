@@ -1067,8 +1067,8 @@ class RobertaForMaskedLM(RobertaPreTrainedModel):
         output_type=MaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
         mask="<mask>",
-        expected_output='" Paris"',
-        expected_loss=0.08,
+        expected_output="' Paris'",
+        expected_loss=0.1,
     )
     def forward(
         self,
@@ -1477,11 +1477,11 @@ class RobertaForQuestionAnswering(RobertaPreTrainedModel):
     @add_start_docstrings_to_model_forward(ROBERTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
         processor_class=_TOKENIZER_FOR_DOC,
-        checkpoint=_CHECKPOINT_FOR_DOC,
+        checkpoint="deepset/roberta-base-squad2",
         output_type=QuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
-        expected_output='" puppet"',
-        expected_loss=0.08,
+        expected_output="' puppet'",
+        expected_loss=0.86,
     )
     def forward(
         self,
