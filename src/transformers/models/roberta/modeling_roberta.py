@@ -1067,6 +1067,8 @@ class RobertaForMaskedLM(RobertaPreTrainedModel):
         output_type=MaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
         mask="<mask>",
+        expected_output='" Paris"',
+        expected_loss=0.08,
     )
     def forward(
         self,
@@ -1478,6 +1480,8 @@ class RobertaForQuestionAnswering(RobertaPreTrainedModel):
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=QuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
+        expected_output='" puppet"',
+        expected_loss=0.08,
     )
     def forward(
         self,
