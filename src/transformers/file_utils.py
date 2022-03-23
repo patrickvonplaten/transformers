@@ -1027,7 +1027,8 @@ PT_QUESTION_ANSWERING_SAMPLE = r"""
     >>> question, text = "Who was Jim Henson?", "Jim Henson was a nice puppet"
 
     >>> inputs = tokenizer(question, text, return_tensors="pt")
-    >>> outputs = model(**inputs)
+    >>> with torch.no_grad():
+    ...     outputs = model(**inputs)
 
     >>> answer_start_index = outputs.start_logits.argmax()
     >>> answer_end_index = outputs.end_logits.argmax()
@@ -1055,18 +1056,24 @@ PT_SEQUENCE_CLASSIFICATION_SAMPLE = r"""
     >>> import torch
     >>> from transformers import {processor_class}, {model_class}
 
-    >>> torch.manual_seed(0)  # doctest: +IGNORE_RESULT
-
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}", num_labels=2)
+    >>> model = {model_class}.from_pretrained("{checkpoint}")
 
     >>> inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
-    >>> labels = torch.tensor([1]).unsqueeze(0)  # Batch size 1
-    >>> outputs = model(**inputs, labels=labels)
-    >>> loss = outputs.loss
-    >>> logits = outputs.logits
-    >>> list(logits.shape)
+
+    >>> with torch.no_grad():
+    ...     logits = model(**inputs).logits
+
+    >>> predicted_class_id = logits.argmax().item()
+    >>> model.config.id2label[predicted_class_id]
     {expected_output}
+    ```
+
+    ```python
+    >>> labels = torch.tensor(1)
+    >>> loss = model(**inputs, labels=labels).loss
+    >>> round(loss.item(), 2)
+    {expected_loss}
     ```
 
     Example of multi-label classification:
@@ -1075,17 +1082,22 @@ PT_SEQUENCE_CLASSIFICATION_SAMPLE = r"""
     >>> import torch
     >>> from transformers import {processor_class}, {model_class}
 
-    >>> torch.manual_seed(0)  # doctest: +IGNORE_RESULT
-
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}", problem_type="multi_label_classification", num_labels=2)
+    >>> model = {model_class}.from_pretrained("{checkpoint}", problem_type="multi_label_classification")
 
     >>> inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
-    >>> labels = torch.tensor([[1, 1]], dtype=torch.float)  # need dtype=float for BCEWithLogitsLoss
-    >>> outputs = model(**inputs, labels=labels)
-    >>> loss = outputs.loss
-    >>> list(logits.shape)
+
+    >>> with torch.no_grad():
+    ...     logits = model(**inputs).logits
+
+    >>> predicted_class_id = logits.argmax().item()
+    >>> model.config.id2label[predicted_class_id]
     {expected_output}
+
+    >>> num_labels = len(model.config.id2label)
+    >>> labels = torch.nn.functional.one_hot(torch.tensor([predicted_class_id]), num_classes=num_labels).to(torch.float)
+    >>> loss = model(**inputs, labels=labels).loss
+    >>> loss.backward()  # doctest: +IGNORE_RESULT
     ```
 """
 
@@ -1101,7 +1113,8 @@ PT_MASKED_LM_SAMPLE = r"""
 
     >>> inputs = tokenizer("The capital of France is {mask}.", return_tensors="pt")
 
-    >>> logits = model(**inputs).logits
+    >>> with torch.no_grad():
+    ...     logits = model(**inputs).logits
 
     >>> # retrieve index of {mask}
     >>> mask_token_index = (inputs.input_ids == tokenizer.mask_token_id)[0].nonzero(as_tuple=True)[0]
