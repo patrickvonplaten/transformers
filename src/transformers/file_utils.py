@@ -1021,28 +1021,30 @@ PT_QUESTION_ANSWERING_SAMPLE = r"""
     >>> from transformers import {processor_class}, {model_class}
     >>> import torch
 
-    >>> torch.manual_seed(0)  # doctest: +IGNORE_RESULT
-
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
     >>> question, text = "Who was Jim Henson?", "Jim Henson was a nice puppet"
-    >>> inputs = tokenizer(question, text, return_tensors="pt")
-    >>> start_positions = torch.tensor([1])
-    >>> end_positions = torch.tensor([3])
 
-    >>> outputs = model(**inputs, start_positions=start_positions, end_positions=end_positions)
+    >>> inputs = tokenizer(question, text, return_tensors="pt")
+    >>> outputs = model(**inputs)
+
+    >>> answer_start_index = outputs.start_logits.argmax()
+    >>> answer_end_index = outputs.end_logits.argmax()
+
+    >>> predict_answer_tokens = inputs.input_ids[0, answer_start_index: answer_end_index + 1]
+    >>> tokenizer.decode(predict_answer_tokens)
+    {expected_output}
+    ```
+
+    ```python
+    >>> # target is "nice puppet"
+    >>> target_start_index, target_end_index = torch.tensor([14]), torch.tensor([15])
+
+    >>> outputs = model(**inputs, start_positions=target_start_index, end_positions=target_end_index)
     >>> loss = outputs.loss
     >>> round(loss.item(), 2)
     {expected_loss}
-
-    >>> start_scores = outputs.start_logits
-    >>> list(start_scores.shape)
-    {expected_output}
-
-    >>> end_scores = outputs.end_logits
-    >>> list(end_scores.shape)
-    {expected_output}
     ```
 """
 
@@ -1087,7 +1089,6 @@ PT_SEQUENCE_CLASSIFICATION_SAMPLE = r"""
     ```
 """
 
-
 PT_MASKED_LM_SAMPLE = r"""
     Example:
 
@@ -1099,11 +1100,25 @@ PT_MASKED_LM_SAMPLE = r"""
     >>> model = {model_class}.from_pretrained("{checkpoint}")
 
     >>> inputs = tokenizer("The capital of France is {mask}.", return_tensors="pt")
+
+    >>> logits = model(**inputs).logits
+
+    >>> # retrieve index of {mask}
+    >>> mask_token_index = (inputs.input_ids == tokenizer.mask_token_id)[0].nonzero(as_tuple=True)[0]
+
+    >>> predicted_token_id = logits[0, mask_token_index].argmax(axis=-1)
+    >>> tokenizer.decode(predicted_token_id)
+    {expected_output}
+    ```
+
+    ```python
     >>> labels = tokenizer("The capital of France is Paris.", return_tensors="pt")["input_ids"]
+    >>> # mask labels of non-{mask} tokens
+    >>> labels = torch.where(inputs.input_ids == tokenizer.mask_token_id, labels, -100)
 
     >>> outputs = model(**inputs, labels=labels)
-    >>> loss = outputs.loss
-    >>> logits = outputs.logits
+    >>> round(outputs.loss.item(), 2)
+    {expected_loss}
     ```
 """
 
