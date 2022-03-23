@@ -1376,9 +1376,11 @@ class RobertaForTokenClassification(RobertaPreTrainedModel):
     @add_start_docstrings_to_model_forward(ROBERTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
         processor_class=_TOKENIZER_FOR_DOC,
-        checkpoint=_CHECKPOINT_FOR_DOC,
+        checkpoint="Jean-Baptiste/roberta-large-ner-english",
         output_type=TokenClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
+        expected_output="['O', 'ORG', 'ORG', 'O', 'O', 'O', 'O', 'O', 'LOC', 'O', 'LOC', 'LOC']",
+        expected_loss=0.01,
     )
     def forward(
         self,

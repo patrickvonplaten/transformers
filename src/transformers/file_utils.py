@@ -999,18 +999,30 @@ PT_TOKEN_CLASSIFICATION_SAMPLE = r"""
     Example:
 
     ```python
-    >>> from transformers import {processor_class}, {model_class}
+    >>> from transformers import RobertaTokenizer, RobertaForTokenClassification
     >>> import torch
+    >>> tokenizer = RobertaTokenizer.from_pretrained("Jean-Baptiste/roberta-large-ner-english")
+    >>> model = RobertaForTokenClassification.from_pretrained("Jean-Baptiste/roberta-large-ner-english")
+    >>> inputs = tokenizer("HuggingFace is a company based in Paris and New York", add_special_tokens=False, return_tensors="pt")
 
-    >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}")
+    >>> with torch.no_grad():
+    ...     logits = model(**inputs).logits
 
-    >>> inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
-    >>> labels = torch.tensor([1] * inputs["input_ids"].size(1)).unsqueeze(0)  # Batch size 1
+    >>> predicted_token_class_ids = logits.argmax(-1)
 
-    >>> outputs = model(**inputs, labels=labels)
-    >>> loss = outputs.loss
-    >>> logits = outputs.logits
+    >>> # Note that tokens are classified rather then input words which means that
+    >>> # there might be more predicted token classes than words.
+    >>> # Multiple token classes might account for the same word
+    >>> predicted_tokens_classes = [model.config.id2label[t.item()] for t in predicted_token_class_ids[0]]
+    >>> predicted_tokens_classes
+    {expected_output}
+    ```
+
+    ```python
+    >>> labels = predicted_token_class_ids
+    >>> loss = model(**inputs, labels=labels).loss
+    >>> round(loss.item(), 2)
+    {expected_loss}
     ```
 """
 
