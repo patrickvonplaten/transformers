@@ -878,7 +878,7 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
         """
         Converts the output of [`DetrForSegmentation`] into image segmentation predictions. Only supports PyTorch.
 
-        Parameters:
+        Args:
             outputs ([`DetrSegmentationOutput`]):
                 Raw outputs of the model.
             target_sizes (`torch.Tensor` of shape `(batch_size, 2)` or `List[Tuple]` of length `batch_size`):
@@ -974,7 +974,7 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
         """
         Converts the output of [`DetrForSegmentation`] into actual panoptic predictions. Only supports PyTorch.
 
-        Parameters:
+        Args:
             outputs ([`DetrSegmentationOutput`]):
                 Raw outputs of the model.
             processed_sizes (`torch.Tensor` of shape `(batch_size, 2)` or `List[Tuple]` of length `batch_size`):
@@ -1165,13 +1165,15 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
 
     def post_process_semantic_segmentation(self, outputs, target_sizes: List[Tuple[int, int]] = None):
         """
-        Args:
         Converts the output of [`DetrForSegmentation`] into semantic segmentation maps. Only supports PyTorch.
+
+        Args:
             outputs ([`DetrForSegmentation`]):
                 Raw outputs of the model.
             target_sizes (`List[Tuple[int, int]]`, *optional*, defaults to `None`):
                 A list of tuples (`Tuple[int, int]`) containing the target size (height, width) of each image in the
                 batch. If left to None, predictions will not be resized.
+
         Returns:
             `List[torch.Tensor]`:
                 A list of length `batch_size`, where each item is a semantic segmentation map of shape (height, width)
@@ -1219,8 +1221,9 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
         return_coco_annotation: Optional[bool] = False,
     ) -> List[Dict]:
         """
-        Args:
         Converts the output of [`DetrForSegmentation`] into instance segmentation predictions. Only supports PyTorch.
+
+        Args:
             outputs ([`DetrForSegmentation`]):
                 Raw outputs of the model.
             threshold (`float`, *optional*, defaults to 0.5):
@@ -1236,6 +1239,7 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
             return_coco_annotation (`bool`, *optional*):
                 Defaults to `False`. If set to `True`, segmentation maps are returned in COCO run-length encoding (RLE)
                 format.
+
         Returns:
             `List[Dict]`: A list of dictionaries, one per image, each dictionary containing two keys:
             - **segmentation** -- A tensor of shape `(height, width)` where each pixel represents a `segment_id` or
@@ -1275,12 +1279,13 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
             # Get segmentation map and segment information of batch item
             target_size = target_sizes[i] if target_sizes is not None else None
             segmentation, segments = compute_segments(
-                mask_probs_item,
-                pred_scores_item,
-                pred_labels_item,
-                mask_threshold,
-                overlap_mask_area_threshold,
-                target_size,
+                mask_probs=mask_probs_item,
+                pred_scores=pred_scores_item,
+                pred_labels=pred_labels_item,
+                mask_threshold=mask_threshold,
+                overlap_mask_area_threshold=overlap_mask_area_threshold,
+                label_ids_to_fuse=[],
+                target_size=target_size,
             )
 
             # Return segmentation map in run-length encoding (RLE) format
@@ -1300,9 +1305,10 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
         target_sizes: Optional[List[Tuple[int, int]]] = None,
     ) -> List[Dict]:
         """
-        Args:
         Converts the output of [`DetrForSegmentation`] into image panoptic segmentation predictions. Only supports
         PyTorch.
+
+        Args:
             outputs ([`DetrForSegmentation`]):
                 The outputs from [`DetrForSegmentation`].
             threshold (`float`, *optional*, defaults to 0.5):
@@ -1320,6 +1326,7 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
                 List of length (batch_size), where each list item (`Tuple[int, int]]`) corresponds to the requested
                 final size (height, width) of each prediction in batch. If left to None, predictions will not be
                 resized.
+
         Returns:
             `List[Dict]`: A list of dictionaries, one per image, each dictionary containing two keys:
             - **segmentation** -- a tensor of shape `(height, width)` where each pixel represents a `segment_id` or
@@ -1366,13 +1373,13 @@ class DetrFeatureExtractor(FeatureExtractionMixin, ImageFeatureExtractionMixin):
             # Get segmentation map and segment information of batch item
             target_size = target_sizes[i] if target_sizes is not None else None
             segmentation, segments = compute_segments(
-                mask_probs_item,
-                pred_scores_item,
-                pred_labels_item,
-                mask_threshold,
-                overlap_mask_area_threshold,
-                label_ids_to_fuse,
-                target_size,
+                mask_probs=mask_probs_item,
+                pred_scores=pred_scores_item,
+                pred_labels=pred_labels_item,
+                mask_threshold=mask_threshold,
+                overlap_mask_area_threshold=overlap_mask_area_threshold,
+                label_ids_to_fuse=label_ids_to_fuse,
+                target_size=target_size,
             )
 
             results.append({"segmentation": segmentation, "segments_info": segments})
